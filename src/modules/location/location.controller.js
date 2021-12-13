@@ -1,14 +1,14 @@
 import catchAsync from '../../utils/catchAsync';
-import locaitonService from './location.service';
+import locationService from './location.service';
 
 const listLocation = catchAsync(async (_req, res) => {
-  const locations = await locaitonService.listLocation();
+  const locations = await locationService.listLocation();
 
   res.send(locations);
 });
 
 const createLocation = catchAsync(async (req, res) => {
-  const newLocation = await locaitonService.createLocation(req.body);
+  const newLocation = await locationService.createLocation(req.body);
 
   res.send(newLocation);
 });
