@@ -2,7 +2,10 @@ import catchAsync from '../../utils/catchAsync';
 import locationService from './location.service';
 
 const listLocation = catchAsync(async (_req, res) => {
-  const locations = await locationService.listLocation();
+  const locations = await locationService
+    .listLocation()
+    .sort('displayName')
+    .populate(['items.jig']);
 
   res.send(locations);
 });

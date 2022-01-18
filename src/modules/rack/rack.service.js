@@ -19,6 +19,11 @@ import { ApiError } from '../../utils/ApiError';
  */
 const createRack = async (rackBody, session) => {
   const queryOptions = session ? { session } : {};
+  const location = await locationService.getLocationById(rackBody.location);
+  if (!location.isRack) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'Location is not a rack location');
+  }
+
   const newRack = new Rack({ ...rackBody, bins: [] });
 
   await newRack.save(queryOptions);
@@ -26,16 +31,22 @@ const createRack = async (rackBody, session) => {
 };
 
 const listRack = async () => {
-  return Rack.find();
+  return Rack.find().sort('location name').populate(['location', 'bins.jig']);
 };
 
 /**
  * @param {mongoose.ObjectId} id
  * @param {mongoose.ClientSession} session
+ * @param {Object} options
+ * @param {Boolean} [options.isPopulateBins]
  */
-const findRackById = async (id, session) => {
+const findRackById = async (id, session, options) => {
   const queryOptions = session ? { session } : {};
-  const rack = await Rack.findById(id, {}, queryOptions);
+  let queryRack = Rack.findById(id, {}, queryOptions);
+  if (options?.isPopulateBins) {
+    queryRack = queryRack.populate('bins.jig');
+  }
+  const rack = await queryRack;
 
   if (!rack) {
     throw new ApiError(httpStatus.NOT_FOUND, `Rack not found (id:${id})`);
@@ -47,11 +58,11 @@ const findRackById = async (id, session) => {
 /**
  * @param {Object} generateBinObjectArgs
  * @param {mongoose.Schema.ObjectId} generateBinObjectArgs.jigId
- * @param {Coordinate[]} generateBinObjectArgs.locations
+ * @param {Coordinate[]} generateBinObjectArgs.coordinates
  * @returns
  */
-const generateBinObject = ({ jigId, locations }) => {
-  return locations.map(({ x, y }) => ({ jig: jigId, x, y }));
+const generateBinObject = ({ jigId, coordinates }) => {
+  return coordinates.map(({ x, y }) => ({ jig: jigId, x, y }));
 };
 
 /**
@@ -88,25 +99,17 @@ const addJig = async ({ rackId, jigId, coordinates, session }) => {
     );
   }
 
-  try {
-    const rack = await findRackById(rackId, { session });
+  const rack = await findRackById(rackId, session);
 
-    if (isCoordinateCrossed(rack.bins, coordinates)) {
-      throw new ApiError(httpStatus.BAD_REQUEST, 'Coordinate is crossed');
-    }
-
-    const binObject = generateBinObject({ jigId, coordinates });
-
-    rack.bins.push(binObject);
-
-    await rack.save();
-
-    return rack;
-  } catch (ex) {
-    await session.abortTransaction();
-
-    throw ex;
+  if (isCoordinateCrossed(rack.bins, coordinates)) {
+    throw new ApiError(httpStatus.BAD_REQUEST, 'Coordinate is crossed');
   }
+
+  generateBinObject({ jigId, coordinates }).forEach((binObject) => rack.bins.push(binObject));
+
+  await rack.save();
+
+  return rack;
 };
 
 /**
@@ -118,7 +121,7 @@ const addJig = async ({ rackId, jigId, coordinates, session }) => {
  */
 
 /**
- * Add jig to bin
+ * Remove jig from bin
  * @param {Object} removeJigArgs
  * @param {mongoose.ObjectId} removeJigArgs.rackId
  * @param {Coordinate[]} removeJigArgs.coordinates
@@ -133,47 +136,36 @@ const removeJig = async ({ rackId, coordinates, session }) => {
     );
   }
 
-  try {
-    const rack = await findRackById(rackId, { session });
+  const rack = await findRackById(rackId, session);
 
-    const removedJigs = coordinates
-      .map((coor) => {
-        const found = rack.bins.find(({ x, y }) => coor.x === x && coor.y === y);
+  const jigs = coordinates.map((coor) => {
+    const found = rack.bins.find(({ x, y }) => coor.x === x && coor.y === y);
 
-        if (!found) {
-          throw new ApiError(httpStatus.BAD_REQUEST, "Can't remove non-exist jig");
+    if (!found) {
+      throw new ApiError(httpStatus.BAD_REQUEST, "Can't remove non-exist jig");
+    }
+
+    rack.bins.id(found._id.toString()).remove();
+    return found.jig.toString();
+  });
+
+  const removedJigs = jigs.reduce((acc, jig) => {
+    const found = acc.find((bin) => bin.jig === jig);
+
+    if (found) {
+      return acc.map((item) => {
+        if (item.jig === jig) {
+          return { jig, qty: item.qty + 1 };
         }
+        return item;
+      });
+    }
+    return [...acc, { jig, qty: 1 }];
+  }, []);
 
-        rack.bins.id(found._id).remove();
-        return found.jig;
-      })
-      .reduce(({ acc, jigName }) => {
-        let found = false;
+  await rack.save();
 
-        const newAcc = acc.map((bin) => {
-          if (bin.jig === jigName) {
-            found = true;
-            return { jig: bin.jig, qty: bin.qty + 1 };
-          }
-
-          return bin;
-        });
-
-        if (found) {
-          return newAcc;
-        }
-
-        return [...acc, { jig: jigName, qty: 1 }];
-      }, []);
-
-    await rack.save();
-
-    return { rack, removedJigs };
-  } catch (ex) {
-    await session.abortTransaction();
-
-    throw ex;
-  }
+  return { rack, removedJigs };
 };
 
 /**
@@ -201,12 +193,12 @@ const InputJigTransaction = async ({
   try {
     const rack = await addJig({ rackId, jigId, coordinates, session });
 
-    const destLocationId = rack.location;
+    const destLocationId = rack.location.toString();
 
     await locationService.locationItemTransaction({
       sourceId: sourceLocationId,
       destId: destLocationId,
-      items: [{ jigId, qty: coordinates.length }],
+      items: [{ jig: jigId, qty: coordinates.length }],
       session,
     });
 
@@ -215,7 +207,9 @@ const InputJigTransaction = async ({
       session.endSession();
     }
   } catch (ex) {
-    await session.abortTransaction();
+    if (!sessionParent) {
+      await session.abortTransaction();
+    }
 
     throw ex;
   }
@@ -239,8 +233,13 @@ const OutputJigTransaction = async ({ rackId, coordinates, destLocationId, sessi
   try {
     const { rack, removedJigs } = await removeJig({ rackId, coordinates, session });
 
+    const destLocation = await locationService.getLocationById(destLocationId);
+    if (destLocation.isRack) {
+      throw new ApiError(httpStatus.BAD_REQUEST, "Can't output to rack");
+    }
+
     await locationService.locationItemTransaction({
-      sourceId: rack.location,
+      sourceId: rack.location.toString(),
       destId: destLocationId,
       items: removedJigs,
       session,
@@ -251,21 +250,23 @@ const OutputJigTransaction = async ({ rackId, coordinates, destLocationId, sessi
       session.endSession();
     }
   } catch (ex) {
-    await session.abortTransaction();
+    if (!sessionParent) {
+      await session.abortTransaction();
+    }
 
     throw ex;
   }
 };
 
 /**
- * Output jig from rack
+ * Input new jig from free qty to rack
  * @param {Object} inputJigTransactionArgs
  * @param {mongoose.ObjectId} inputJigTransactionArgs.rackId
  * @param {mongoose.ObjectId} inputJigTransactionArgs.jigId
  * @param {Coordinate[]} inputJigTransactionArgs.coordinates
- * @param {mongoose.ClientSession} [inputJigTransactionArgs.sessionParent]
+ * @param {mongoose.ClientSession} [inputJigTransactionArgs.session]
  */
-const newJigTransaction = async ({ rackId, jigId, coordinates, sessionParent }) => {
+const newInputJigTransaction = async ({ rackId, jigId, coordinates, session: sessionParent }) => {
   const session = sessionParent || (await mongoose.startSession());
 
   if (!sessionParent) {
@@ -275,14 +276,21 @@ const newJigTransaction = async ({ rackId, jigId, coordinates, sessionParent }) 
   try {
     const rack = await addJig({ rackId, jigId, coordinates, session });
 
-    await locationService.addItem({ jigId, locationId: rack.location, qty: coordinates.length });
+    await locationService.addItem({
+      jigId,
+      locationId: rack.location,
+      qty: coordinates.length,
+      session,
+    });
 
     if (!sessionParent) {
       await session.commitTransaction();
       session.endSession();
     }
   } catch (ex) {
-    await session.abortTransaction();
+    if (!sessionParent) {
+      await session.abortTransaction();
+    }
 
     throw ex;
   }
@@ -291,8 +299,9 @@ const newJigTransaction = async ({ rackId, jigId, coordinates, sessionParent }) 
 export default {
   createRack,
   listRack,
+  findRackById,
   addJig,
   InputJigTransaction,
   OutputJigTransaction,
-  newJigTransaction,
+  newInputJigTransaction,
 };

@@ -30,6 +30,7 @@ const getJigById = async (id, session) => {
 const createJig = async (jigBody, session) => {
   const queryOptions = session ? { session } : {};
   const newJig = new Jig({ freeQty: jigBody.binQty, ...jigBody });
+  newJig.nameModel = newJig.name + newJig.model;
 
   await newJig.save(queryOptions);
   return newJig;

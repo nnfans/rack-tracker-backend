@@ -16,7 +16,7 @@ import { ApiError } from '../../utils/ApiError';
 
 /**
  *
- * @returns Promise<Location>
+ * @returns {Promise<Location[]>}
  */
 const listLocation = () => {
   return Location.find();
@@ -30,7 +30,7 @@ const listLocation = () => {
  */
 const createLocation = async (locationBody, session) => {
   const queryOptions = session ? { session } : {};
-  const newLocation = new Location(locationBody);
+  const newLocation = new Location({ displayName: locationBody.name, ...locationBody });
 
   await newLocation.save(queryOptions);
   return newLocation;
@@ -63,29 +63,25 @@ const reduceStockByItems = async ({ locationId, items, session }) => {
     );
   }
 
-  try {
-    const location = await getLocationById(locationId, session);
+  const location = await getLocationById(locationId, session);
 
-    items.forEach((item) => {
-      const foundItem = location.items.find((locationItem) => locationItem.jig === item.jig);
+  items.forEach((item) => {
+    const foundItem = location.items.find(
+      (locationItem) => locationItem.jig.toString() === item.jig
+    );
 
-      if (!foundItem || foundItem?.qty < item.qty) {
-        throw new ApiError(httpStatus.NOT_FOUND, 'Location stock is insufficient');
-      }
+    if (!foundItem || foundItem?.qty < item.qty) {
+      throw new ApiError(httpStatus.NOT_FOUND, 'Location stock is insufficient');
+    }
 
-      const updatedQty = foundItem.qty - item.qty;
+    const updatedQty = foundItem.qty - item.qty;
 
-      location.items.id(foundItem._id).set({ qty: updatedQty });
-    });
+    location.items.id(foundItem._id).set({ qty: updatedQty });
+  });
 
-    await location.save();
+  await location.save();
 
-    return location;
-  } catch (ex) {
-    await session.abortTransaction();
-
-    throw ex;
-  }
+  return location;
 };
 
 /**
@@ -99,26 +95,24 @@ const increaseStockByItems = async ({ locationId, items, session }) => {
     );
   }
 
-  try {
-    const location = await getLocationById(locationId, session);
+  const location = await getLocationById(locationId, session);
 
-    items.forEach((item) => {
-      const foundItem = location.items.find((locationItem) => locationItem.jig === item.jig);
-      if (foundItem) {
-        const updatedQty = foundItem.qty + item.qty;
-        location.items.id(foundItem._id).set({ qty: updatedQty });
-      } else {
-        location.items.push({ jig: item.jig, qty: item.qty });
-      }
-    });
-    await location.save();
+  items.forEach((item) => {
+    const foundItem = location.items.find(
+      (locationItem) => locationItem.jig.toString() === item.jig
+    );
 
-    return location;
-  } catch (ex) {
-    await session.abortTransaction();
+    if (foundItem) {
+      const updatedQty = foundItem.qty + item.qty;
+      location.items.id(foundItem._id).set({ qty: updatedQty });
+    } else {
+      location.items.push({ jig: item.jig, qty: item.qty });
+    }
+  });
 
-    throw ex;
-  }
+  await location.save();
+
+  return location;
 };
 
 /**
@@ -126,11 +120,14 @@ const increaseStockByItems = async ({ locationId, items, session }) => {
  * @param {mongoose.Types.ObjectId} addItemArgument.locationId
  * @param {mongoose.Types.ObjectId} addItemArgument.jigId
  * @param {Number} addItemArgument.qty
+ * @param {mongoose.ClientSession} [addItemArgument.session]
  */
-const addItem = async ({ locationId, jigId, qty }) => {
-  const session = await mongoose.startSession();
+const addItem = async ({ locationId, jigId, qty, session: sessionParent }) => {
+  const session = sessionParent || (await mongoose.startSession());
 
-  session.startTransaction();
+  if (!sessionParent) {
+    session.startTransaction();
+  }
 
   try {
     // Reduce free qty of jig
@@ -148,12 +145,16 @@ const addItem = async ({ locationId, jigId, qty }) => {
       session,
     });
 
-    await session.commitTransaction();
-    session.endSession();
+    if (!sessionParent) {
+      await session.commitTransaction();
+      session.endSession();
+    }
 
     return location;
   } catch (ex) {
-    await session.abortTransaction();
+    if (!sessionParent) {
+      await session.abortTransaction();
+    }
 
     throw ex;
   }
@@ -177,6 +178,13 @@ const locationItemTransaction = async ({ sourceId, destId, items, session: sessi
   }
 
   try {
+    if (sourceId === destId) {
+      throw new ApiError(
+        httpStatus.BAD_REQUEST,
+        'Source location and destination location must be different'
+      );
+    }
+
     await reduceStockByItems({ locationId: sourceId, items, session });
     await increaseStockByItems({ locationId: destId, items, session });
 
@@ -196,6 +204,7 @@ const locationItemTransaction = async ({ sourceId, destId, items, session: sessi
 export default {
   listLocation,
   createLocation,
+  getLocationById,
   addItem,
   reduceStockByItems,
   increaseStockByItems,

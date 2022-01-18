@@ -1,5 +1,7 @@
 import { Schema, model } from 'mongoose';
 
+import { toJSON } from '../../plugins/mongoose/toJSON.plugin';
+
 const rackSchema = new Schema({
   name: { type: String, required: true },
   location: {
@@ -7,15 +9,31 @@ const rackSchema = new Schema({
     ref: 'Location',
     required: true,
   },
+  order: { type: Number, default: 0 },
   info: {
-    totalRow: {
-      type: Number,
-      required: true,
+    row: {
+      total: {
+        type: Number,
+        required: true,
+      },
+      useLetter: {
+        type: Boolean,
+        default: true,
+      },
     },
-    totalCol: { type: Number, required: true },
+    col: {
+      total: {
+        type: Number,
+        required: true,
+      },
+      useLetter: {
+        type: Boolean,
+        default: false,
+      },
+    },
   },
   bins: [
-    new Schema({
+    {
       x: { type: Number, required: true },
       y: { type: Number, required: true },
       jig: {
@@ -23,9 +41,11 @@ const rackSchema = new Schema({
         ref: 'Jig',
         required: true,
       },
-    }),
+    },
   ],
 });
+
+rackSchema.plugin(toJSON);
 
 /**
  * @typedef Rack

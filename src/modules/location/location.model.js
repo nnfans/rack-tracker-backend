@@ -5,7 +5,9 @@ import { toJSON } from '../../plugins/mongoose/toJSON.plugin';
  * @constructor
  */
 const locationSchema = new Schema({
-  name: { type: String, required: true },
+  name: { type: String, required: true, unique: true },
+  displayName: { type: String, required: true, unique: true },
+  isRack: { type: Boolean, default: false },
   items: [
     new Schema({
       jig: {

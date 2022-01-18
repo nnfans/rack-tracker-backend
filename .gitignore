@@ -7,9 +7,10 @@ dist
 # yarn error logs
 yarn-error.log
 
-# Environment varibales
+# Environment variables
 .env*
 !.env*.example
+.vscode/sftp.json
 
 # Code coverage
 coverage

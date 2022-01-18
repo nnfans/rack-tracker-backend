@@ -4,6 +4,7 @@ import config from './config/config';
 import logger from './config/logger';
 
 let server;
+
 mongoose.connect(config.mongoose.url, config.mongoose.options).then(() => {
   logger.info('Connected to MongoDB');
   server = app.listen(config.port, () => {
