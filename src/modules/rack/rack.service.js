@@ -30,8 +30,8 @@ const createRack = async (rackBody, session) => {
   return newRack;
 };
 
-const listRack = async () => {
-  return Rack.find().sort('location name').populate(['location', 'bins.jig']);
+const listRack = () => {
+  return Rack.find();
 };
 
 /**
@@ -39,12 +39,16 @@ const listRack = async () => {
  * @param {mongoose.ClientSession} session
  * @param {Object} options
  * @param {Boolean} [options.isPopulateBins]
+ * @param {Boolean} [options.isPopulateLocation]
  */
 const findRackById = async (id, session, options) => {
   const queryOptions = session ? { session } : {};
   let queryRack = Rack.findById(id, {}, queryOptions);
   if (options?.isPopulateBins) {
     queryRack = queryRack.populate('bins.jig');
+  }
+  if (options?.isPopulateLocation) {
+    queryRack = queryRack.populate('location');
   }
   const rack = await queryRack;
 

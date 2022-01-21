@@ -5,8 +5,18 @@ import rackService from './rack.service';
 import catchAsync from '../../utils/catchAsync';
 import { ApiError } from '../../utils/ApiError';
 
-const listRack = catchAsync(async (_req, res) => {
-  const racks = await rackService.listRack();
+const listRack = catchAsync(async (req, res) => {
+  const { query } = req;
+
+  let racksQuery = rackService.listRack();
+
+  if (query.locationId) {
+    racksQuery = racksQuery.where('location').equals(query.locationId);
+  }
+
+  racksQuery = racksQuery.sort('location name').populate(['location']);
+
+  const racks = await racksQuery;
 
   res.send(racks);
 });
@@ -19,7 +29,10 @@ const createRack = catchAsync(async (req, res) => {
 
 const getRackById = catchAsync(async (req, res) => {
   const { id } = req.params;
-  const rack = await rackService.findRackById(id, null, { isPopulateBins: true });
+  const rack = await rackService.findRackById(id, null, {
+    isPopulateBins: true,
+    isPopulateLocation: true,
+  });
 
   if (!rack) {
     throw new ApiError(httpStatus.NOT_FOUND, `Rack not found (id: ${id})`);

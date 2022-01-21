@@ -39,11 +39,19 @@ const createLocation = async (locationBody, session) => {
 /**
  * Get location by id
  * @param {mongoose.ObjectId} id
- * @param {mongoose.ClientSession} [session]
+ * @param {Object} [getLocationByIdArgs]
+ * @param {mongoose.ClientSession} getLocationByIdArgs.session
+ * @param {Boolean} getLocationByIdArgs.includeJig
  */
-const getLocationById = async (id, session) => {
+const getLocationById = async (id, { session, includeJig } = {}) => {
   const queryOptions = session ? { session } : {};
-  const location = await Location.findById(id, {}, queryOptions);
+  let locationQuery = Location.findById(id, {}, queryOptions);
+
+  if (includeJig) {
+    locationQuery = locationQuery.populate('items.jig');
+  }
+
+  const location = await locationQuery;
 
   if (!location) {
     throw new ApiError(httpStatus.NOT_FOUND, `Location is not found (id:${id})`);
@@ -63,7 +71,7 @@ const reduceStockByItems = async ({ locationId, items, session }) => {
     );
   }
 
-  const location = await getLocationById(locationId, session);
+  const location = await getLocationById(locationId, { session });
 
   items.forEach((item) => {
     const foundItem = location.items.find(
@@ -95,7 +103,7 @@ const increaseStockByItems = async ({ locationId, items, session }) => {
     );
   }
 
-  const location = await getLocationById(locationId, session);
+  const location = await getLocationById(locationId, { session });
 
   items.forEach((item) => {
     const foundItem = location.items.find(
