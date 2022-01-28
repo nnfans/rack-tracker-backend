@@ -9,6 +9,12 @@ const jigSchema = new Schema({
   freeQty: { type: Number, required: true },
 });
 
+jigSchema.pre('save', function (next) {
+  this.nameModel = this.name + this.model;
+
+  next();
+});
+
 jigSchema.plugin(toJSON);
 
 const Jig = model('Jig', jigSchema);

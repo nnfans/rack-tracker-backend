@@ -13,4 +13,19 @@ const createJig = catchAsync(async (req, res) => {
   res.send(jig);
 });
 
-export default { listJig, createJig };
+const getJigById = catchAsync(async (req, res) => {
+  const { id } = req.params;
+
+  const jig = await jigService.getJigById(id);
+
+  res.send(jig);
+});
+
+const updateJigById = catchAsync(async (req, res) => {
+  const { id } = req.params;
+  const jig = await jigService.updateJigById({ id, jigBody: req.body });
+
+  res.send(jig);
+});
+
+export default { listJig, createJig, getJigById, updateJigById };

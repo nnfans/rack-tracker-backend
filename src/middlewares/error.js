@@ -17,6 +17,7 @@ export const errorConverter = (err, req, res, next) => {
   next(error);
 };
 
+// Declaring next parameter is necessary as express error handling function need to have 4 parameter
 // eslint-disable-next-line no-unused-vars
 export const errorHandler = (err, req, res, next) => {
   let { statusCode, message } = err;
@@ -30,6 +31,7 @@ export const errorHandler = (err, req, res, next) => {
   const response = {
     code: statusCode,
     message,
+    details: res.locals.validationError,
     ...(config.env === 'development' && { stack: err.stack }),
   };
 
